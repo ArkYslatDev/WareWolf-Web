@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🐺 Werewolf Online</title>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;800&display=swap" rel="stylesheet">
+    <!-- Menghubungkan ke file CSS terpisah -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="card">
+    <h1>🐺 Werewolf Online</h1>
+
+    <!-- MENU UTAMA -->
+    <div id="menu-section">
+        <input type="text" id="name-input" placeholder="Nama Karakter" maxlength="15">
+        <p style="text-align:left; font-size:12px; margin-bottom:5px; color:#aaa;">Pilih Avatar:</p>
+        <div class="avatar-grid" id="avatar-grid">
+            <div class="avatar-option selected" onclick="selectAvatar(this, '👨')">👨</div>
+            <div class="avatar-option" onclick="selectAvatar(this, '👩')">👩</div>
+            <div class="avatar-option" onclick="selectAvatar(this, '🧙‍♂️')">🧙‍♂️</div>
+            <div class="avatar-option" onclick="selectAvatar(this, '🕵️')">🕵️</div>
+            <div class="avatar-option" onclick="selectAvatar(this, '👮')">👮</div>
+            <div class="avatar-option" onclick="selectAvatar(this, '👻')">👻</div>
+            <div class="avatar-option" onclick="selectAvatar(this, '🐺')">🐺</div>
+            <div class="avatar-option" onclick="selectAvatar(this, '🤖')">🤖</div>
+        </div>
+
+        <button onclick="createRoom('bot')" class="btn-bot">🤖 Main Lawan Bot (Single Player)</button>
+        <hr style="border-color: #4c2a78; margin: 15px 0;">
+        <button onclick="createRoom('multi')" style="background: #a855f7;">👥 Buat Room (Multiplayer)</button>
+        <div style="display:flex; gap:10px; margin-top:10px;">
+            <input type="text" id="room-input" placeholder="Kode Room" maxlength="6" style="margin:0;">
+            <button onclick="joinRoom()" class="btn-join" style="margin:0; width:100px;">Gabung</button>
+        </div>
+    </div>
+
+    <!-- LOBBY -->
+    <div id="lobby-section" class="hidden">
+        <h2>Kode Room: <span id="room-code-display" style="color:#facc15; letter-spacing:2px;"></span></h2>
+        <p id="mode-indicator" style="text-align:center; font-weight:bold; margin-bottom:10px; color:#facc15;"></p>
+        <div id="player-list" class="player-list"></div>
+        <button id="start-btn" onclick="startGame()" class="hidden">▶ Mulai Game (Host)</button>
+        <p id="waiting-msg" style="text-align:center; color:#facc15;">Menunggu host memulai...</p>
+    </div>
+
+    <!-- GAME -->
+    <div id="game-section" class="hidden">
+        <h2 id="phase-title" style="color:#facc15;">Fase</h2>
+        <div class="role-box" id="role-info">Peranmu: <b>???</b></div>
+
+        <div id="timer-bar" class="timer-bar hidden">
+            <div id="timer-fill" class="timer-fill" style="width: 100%;"></div>
+            <div id="timer-text" class="timer-text">0s</div>
+        </div>
+
+        <div id="witch-panel" class="hidden" style="background: rgba(168,85,247,0.1); padding: 15px; border-radius: 12px; border: 1px solid #a855f7; margin-bottom: 15px;">
+            <h3 style="color: #a855f7; font-size: 16px; margin-bottom: 10px; text-align:center;">🧪 Ramuan Penyihir</h3>
+            <div style="display: flex; gap: 10px; justify-content: center;">
+                <button id="btn-heal" onclick="useWitchPotion('heal')" style="background: #3b82f6; font-size: 12px; padding: 10px; margin:0;">💚 Sembuhkan</button>
+                <button id="btn-poison" onclick="useWitchPotion('poison')" style="background: #ef4444; font-size: 12px; padding: 10px; margin:0;">☠️ Racuni</button>
+            </div>
+        </div>
+
+        <div id="action-area">
+            <p id="action-desc" style="text-align:center; margin-bottom:10px; color:#aaa;">Pilih pemain:</p>
+            <div id="target-list" class="player-list"></div>
+        </div>
+
+        <div id="log-area" class="log-area"></div>
+        <button id="play-again-btn" onclick="playAgain()" class="hidden" style="margin-top: 15px; background:#22c55e;">🔄 Main Lagi</button>
+    </div>
+
+    <!-- CHAT -->
+    <div id="chat-section" class="hidden">
+        <div class="chat-box">
+            <div class="chat-header">
+                <span>💬 Chat</span>
+                <span id="chat-channel-label" style="color:#facc15;">PUBLIK</span>
+            </div>
+            <div class="chat-messages" id="chat-messages"></div>
+            <div class="chat-input-row">
+                <input type="text" id="chat-input" placeholder="Ketik pesan..." maxlength="200" onkeydown="if(event.key==='Enter') sendChat()">
+                <button onclick="sendChat()">Kirim</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Menghubungkan ke file Javascript terpisah -->
+<script src="/socket.io/socket.io.js"></script>
+<script src="script.js"></script>
+</body>
+</html>

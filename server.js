@@ -10,12 +10,12 @@ const io = new Server(server);
 app.use(express.static(path.join(__dirname, 'public')));
 
 const rooms = {};
-const TIMER_NIGHT = 40;
-const TIMER_DAY = 45;
+const TIMER_NIGHT = 30;
+const TIMER_DAY = 30;
 const TIMER_VOTE = 30;
 
 // ==========================================
-// FUNGSI GLOBAL (Diperbaiki agar server tidak crash)
+// FUNGSI UTILITY & TIMER (GLOBAL)
 // ==========================================
 function clearTimer(roomCode) {
     const room = rooms[roomCode];
@@ -29,7 +29,7 @@ function clearTimer(roomCode) {
 function startPhaseTimer(roomCode, phase) {
     const room = rooms[roomCode];
     if (!room) return;
-    clearTimer(roomCode); // Panggil fungsi global
+    clearTimer(roomCode);
 
     let duration = TIMER_NIGHT;
     if (phase === 'day') duration = TIMER_DAY;
@@ -56,21 +56,94 @@ function broadcastRoom(roomCode) {
     if (!room) return;
     io.to(roomCode).emit('roomUpdate', {
         players: room.players, phase: room.phase, nightCount: room.nightCount,
-        votes: room.votes, hostId: room.hostId, roomCode,
+        votes: room.votes, hostId: room.hostId, roomCode, isBotMode: room.isBotMode,
         timerEnd: room.timerEnd, timerDuration: room.timerDuration
     });
 }
+
 // ==========================================
+// BOT AI LOGIC
+// ==========================================
+function processBotActions(roomCode) {
+    const room = rooms[roomCode];
+    if (!room) return;
 
+    room.players.forEach(bot => {
+        if (!bot.isBot || !bot.alive) return;
 
+        // Jeda acak agar bot tidak bergerak serentak (0.5 - 2.5 detik)
+        const delay = Math.random() * 2000 + 500;
+
+        setTimeout(() => {
+            if (!rooms[roomCode] || rooms[roomCode].phase !== room.phase) return;
+            const currentRoom = rooms[roomCode];
+
+            if (currentRoom.phase === 'night') {
+                if (bot.role === 'Werewolf' && !currentRoom.wolfTarget) {
+                    const targets = currentRoom.players.filter(p => p.alive && p.role !== 'Werewolf' && p.id !== bot.id);
+                    if (targets.length > 0) {
+                        const target = targets[Math.floor(Math.random() * targets.length)];
+                        currentRoom.wolfTarget = target.id;
+                        io.to(roomCode).emit('botActionMsg', `🐺 Bot ${bot.name} telah memilih target.`);
+                    }
+                } else if (bot.role === 'Penyihir' && !bot.witchUsed && !currentRoom.witchAction) {
+                    if (Math.random() > 0.5) {
+                        const targets = currentRoom.players.filter(p => p.alive);
+                        const target = targets[Math.floor(Math.random() * targets.length)];
+                        currentRoom.witchTarget = target.id;
+                        currentRoom.witchAction = 'heal';
+                        io.to(roomCode).emit('botActionMsg', `🧙‍♀️ Bot ${bot.name} menggunakan ramuan sembuh.`);
+                    } else {
+                        const targets = currentRoom.players.filter(p => p.alive && p.role !== 'Penyihir');
+                        if (targets.length > 0) {
+                            const target = targets[Math.floor(Math.random() * targets.length)];
+                            currentRoom.witchTarget = target.id;
+                            currentRoom.witchAction = 'poison';
+                            io.to(roomCode).emit('botActionMsg', `🧙‍♀️ Bot ${bot.name} menggunakan ramuan racun.`);
+                        }
+                    }
+                } else if (bot.role === 'Peramal') {
+                    const targets = currentRoom.players.filter(p => p.alive && p.id !== bot.id);
+                    if (targets.length > 0) {
+                        const target = targets[Math.floor(Math.random() * targets.length)];
+                        io.to(roomCode).emit('botActionMsg', `🔮 Bot ${bot.name} sedang meramal...`);
+                    }
+                }
+            } 
+            else if (currentRoom.phase === 'vote') {
+                if (!currentRoom.votes[bot.id]) {
+                    const targets = currentRoom.players.filter(p => p.alive && p.id !== bot.id);
+                    if (targets.length > 0) {
+                        const target = targets[Math.floor(Math.random() * targets.length)];
+                        currentRoom.votes[bot.id] = target.id;
+                        
+                        const alivePlayers = currentRoom.players.filter(p => p.alive);
+                        if (Object.keys(currentRoom.votes).length >= alivePlayers.length) {
+                            clearTimer(roomCode);
+                            resolveVote(roomCode);
+                        } else {
+                            broadcastRoom(roomCode);
+                        }
+                    }
+                }
+            }
+        }, delay);
+    });
+}
+
+// ==========================================
+// KONEKSI SOCKET
+// ==========================================
 io.on('connection', (socket) => {
-    socket.on('createRoom', ({ playerName, avatar }) => {
+    socket.on('createRoom', ({ playerName, avatar, mode }) => {
         if (!playerName || playerName.trim() === '') return socket.emit('errorMsg', 'Nama kosong!');
         const roomCode = Math.random().toString(36).substring(2, 6).toUpperCase();
+        
         rooms[roomCode] = {
             players: [], phase: 'lobby', nightCount: 0, votes: {}, 
             wolfTarget: null, witchTarget: null, witchAction: null,
-            hostId: socket.id, timer: null, timerEnd: null, timerDuration: 0
+            hostId: socket.id, isBotMode: (mode === 'bot'),
+            timer: null, timerEnd: null, timerDuration: 0
         };
         joinRoom(socket, roomCode, playerName.trim(), avatar);
     });
@@ -88,7 +161,7 @@ io.on('connection', (socket) => {
         socket.join(roomCode);
         rooms[roomCode].players.push({ 
             id: socket.id, name: playerName, role: 'Warga', alive: true, avatar: avatar || '👤',
-            witchUsed: false
+            witchUsed: false, isBot: false
         });
         socket.roomCode = roomCode;
         broadcastRoom(roomCode);
@@ -98,8 +171,28 @@ io.on('connection', (socket) => {
         const roomCode = socket.roomCode;
         const room = rooms[roomCode];
         if (!room || room.hostId !== socket.id || room.phase !== 'lobby') return;
-        if (room.players.length < 4) return socket.emit('errorMsg', 'Minimal 4 pemain!');
+        
+        if (!room.isBotMode && room.players.length < 4) {
+            return socket.emit('errorMsg', 'Minimal 4 pemain untuk mode Multiplayer!');
+        }
 
+        // Tambahkan Bot jika Mode Bot
+        if (room.isBotMode) {
+            const botNames = ['Budi', 'Siti', 'Joko', 'Rina', 'Andi'];
+            const botAvatars = ['🤖', '👾', '👽', '🧟', '🎃'];
+            const botsNeeded = 4 - room.players.length + 1; // Minimal total 5 pemain (1 user + 4 bot)
+
+            for (let i = 0; i < botsNeeded; i++) {
+                room.players.push({
+                    id: 'bot_' + Math.random().toString(36).substring(2, 6),
+                    name: 'Bot ' + (botNames[i] || 'X'),
+                    role: 'Warga', alive: true, avatar: botAvatars[i] || '🤖',
+                    witchUsed: false, isBot: true
+                });
+            }
+        }
+
+        // Distribusi Role
         const roles = [];
         const pCount = room.players.length;
         const wolfCount = Math.max(1, Math.floor(pCount / 4));
@@ -121,6 +214,8 @@ io.on('connection', (socket) => {
         io.to(roomCode).emit('gameStarted', { players: room.players, roomCode });
         startPhaseTimer(roomCode, 'night');
         broadcastRoom(roomCode);
+
+        if (room.isBotMode) processBotActions(roomCode);
     });
 
     socket.on('nightAction', ({ targetId, actionType }) => {
@@ -210,6 +305,12 @@ io.on('connection', (socket) => {
         clearTimer(roomCode);
         room.phase = 'lobby'; room.nightCount = 0; room.votes = {};
         room.wolfTarget = null; room.witchTarget = null; room.witchAction = null;
+        
+        // Hapus bot jika sebelumnya mode bot
+        if (room.isBotMode) {
+            room.players = room.players.filter(p => !p.isBot);
+        }
+
         room.players.forEach(p => { p.alive = true; p.role = 'Warga'; p.witchUsed = false; });
         broadcastRoom(roomCode);
     });
@@ -266,6 +367,9 @@ function resolveNight(roomCode) {
 
     startPhaseTimer(roomCode, 'day');
     broadcastRoom(roomCode);
+
+    // Jika mode bot, picu aksi bot untuk siang/vote nanti
+    if (room.isBotMode) processBotActions(roomCode);
 }
 
 function resolveVote(roomCode) {
@@ -299,6 +403,9 @@ function resolveVote(roomCode) {
 
     startPhaseTimer(roomCode, 'night');
     broadcastRoom(roomCode);
+
+    // Jika mode bot, picu aksi bot untuk malam berikutnya
+    if (room.isBotMode) processBotActions(roomCode);
 }
 
 function checkWin(roomCode) {
